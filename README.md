@@ -135,6 +135,17 @@ CLOUDWATCH_BUFFER_CAP=100000
 CLOUDWATCH_BUFFER_RECORD_TTL=259200
 ```
 
+### Shipping frequency
+
+By default the ship command runs every minute. Projects that do not log much can ship less often. A plain number means "every N minutes", or provide a full five-part cron expression:
+
+```dotenv
+CLOUDWATCH_SHIP_SCHEDULE=5              # every five minutes
+CLOUDWATCH_SHIP_SCHEDULE="*/10 * * * *" # same idea, as a cron expression
+```
+
+An idle run is nearly free either way. When the buffer is empty the command exits after two cache reads, without contacting AWS. When shipping less frequently, make sure `CLOUDWATCH_BUFFER_CAP` comfortably holds the records your app produces between runs.
+
 ### Scheduling yourself
 
 Set `CLOUDWATCH_AUTO_SCHEDULE=false` and schedule the command however you prefer:

@@ -66,16 +66,35 @@ class CloudWatchServiceProvider extends PackageServiceProvider
 
     protected function scheduleShipCommand(): void
     {
-        if (! config('cloudwatch.enabled')) {
-            return;
-        }
-
-        if (! config('cloudwatch.ship.auto_schedule')) {
-            return;
-        }
-
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
-            $schedule->command(ShipLogsCommand::class)->everyMinute()->withoutOverlapping();
+            if (! config('cloudwatch.enabled')) {
+                return;
+            }
+
+            if (! config('cloudwatch.ship.auto_schedule')) {
+                return;
+            }
+
+            $schedule->command(ShipLogsCommand::class)
+                ->cron($this->resolveShipCronExpression())
+                ->withoutOverlapping();
         });
+    }
+
+    protected function resolveShipCronExpression(): string
+    {
+        $schedule = trim((string) config('cloudwatch.ship.schedule', '* * * * *'));
+
+        if (! is_numeric($schedule)) {
+            return $schedule;
+        }
+
+        $minutes = (int) min(59, max(1, (int) $schedule));
+
+        if ($minutes === 1) {
+            return '* * * * *';
+        }
+
+        return "*/{$minutes} * * * *";
     }
 }

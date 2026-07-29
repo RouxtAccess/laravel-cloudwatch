@@ -89,6 +89,14 @@ return [
         'auto_schedule' => (bool) env('CLOUDWATCH_AUTO_SCHEDULE', true),
 
         /*
+         * How often the ship command runs when auto scheduled. A plain number
+         * means "every N minutes" (1 to 59), or provide a full five-part cron
+         * expression for anything else. Lower volume projects can comfortably
+         * ship every 5 or 10 minutes; size the buffer cap accordingly.
+         */
+        'schedule' => env('CLOUDWATCH_SHIP_SCHEDULE', '* * * * *'),
+
+        /*
          * How many buffered records are pulled from the cache store per
          * shipping round trip.
          */

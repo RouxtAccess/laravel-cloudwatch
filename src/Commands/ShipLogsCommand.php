@@ -33,6 +33,12 @@ class ShipLogsCommand extends Command
         }
 
         try {
+            if ($buffer->pendingCount() === 0) {
+                $this->info('The log buffer is empty, nothing to ship.');
+
+                return self::SUCCESS;
+            }
+
             $this->ensureLogGroupAndStreamExist($cloudWatchClient);
 
             $shippedCount = $this->shipPendingRecords($cloudWatchClient, $buffer);

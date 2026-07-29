@@ -38,6 +38,14 @@ function expectLogGroupSetup(MockInterface $mock, bool $groupAlreadyExists = tru
     $mock->shouldReceive('createLogStream')->once();
 }
 
+it('makes no aws calls when the buffer is empty', function () {
+    $mock = mockCloudWatchClient();
+    $mock->shouldNotReceive('describeLogGroups');
+    $mock->shouldNotReceive('putLogEvents');
+
+    $this->artisan('cloudwatch:ship')->assertSuccessful();
+});
+
 it('does nothing when shipping is disabled', function () {
     config()->set('cloudwatch.enabled', false);
 
