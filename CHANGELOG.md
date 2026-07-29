@@ -2,6 +2,12 @@
 
 All notable changes to `laravel-cloudwatch` will be documented in this file.
 
+## 2.0.1 - 2026-07-29
+
+### Changed
+
+- Trimmed the Laravel Boost guidelines to the safety rules and a pointer to the `laravel-cloudwatch` skill, cutting the token cost they add to every consuming app. The full detail stays in the skill, which loads on demand.
+
 ## 2.0.0 - 2026-07-29
 
 ### Added
