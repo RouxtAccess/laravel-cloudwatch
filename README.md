@@ -6,7 +6,9 @@
 
 Ship Laravel logs to AWS CloudWatch Logs without blocking your application.
 
-Most CloudWatch log handlers call the AWS API from inside your PHP process, so a slow or unavailable CloudWatch endpoint slows down web requests, queue workers, and artisan commands. This package takes a different approach. The log channel writes each record to a fast local buffer (any Laravel cache store), and a scheduled command ships the buffer to CloudWatch in batches, outside of any request or job.
+For years, CloudWatch logging from PHP has meant choosing between two kinds of pain. The existing log handlers are synchronous, calling the AWS API from inside your PHP process, where a slow or unavailable CloudWatch endpoint can slow down or outright break your requests. The alternative is a CloudWatch agent living on every server, with file watchers, per-host configuration, and one more piece of infrastructure for Ops to install, monitor, and keep patched. This package exists to remove both. Logging never touches AWS inside your request path, and there is nothing to run beyond a normal Laravel install, using the scheduler and a cache store you already have.
+
+The log channel writes each record to a fast local buffer (any Laravel cache store), and a scheduled command ships the buffer to CloudWatch in batches, outside of any request or job.
 
 Highlights:
 
