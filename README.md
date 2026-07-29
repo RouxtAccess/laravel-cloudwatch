@@ -1,91 +1,193 @@
-# :package_description
+# Laravel CloudWatch
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-[![GitHub Tests Action Status](https://github.com/spatie/package-skeleton-laravel/actions/workflows/run-tests.yml/badge.svg)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://github.com/spatie/package-skeleton-laravel/actions/workflows/fix-php-code-style-issues.yml/badge.svg)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-<!--delete-->
----
-This repo can be used to scaffold a Laravel package. Follow these steps to get started:
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/rouxtaccess/laravel-cloudwatch.svg?style=flat-square)](https://packagist.org/packages/rouxtaccess/laravel-cloudwatch)
+[![GitHub Tests Action Status](https://github.com/RouxtAccess/laravel-cloudwatch/actions/workflows/run-tests.yml/badge.svg)](https://github.com/RouxtAccess/laravel-cloudwatch/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/rouxtaccess/laravel-cloudwatch.svg?style=flat-square)](https://packagist.org/packages/rouxtaccess/laravel-cloudwatch)
 
-1. Press the "Use this template" button at the top of this repo to create a new repo with the contents of this skeleton.
-2. Run "php ./configure.php" to run a script that will replace all placeholders throughout all the files.
-3. Have fun creating your package.
-4. If you need help creating a package, consider picking up our <a href="https://laravelpackage.training">Laravel Package Training</a> video course.
----
-<!--/delete-->
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
+Ship Laravel logs to AWS CloudWatch Logs without blocking your application.
 
-## Support us
+Most CloudWatch log handlers call the AWS API from inside your PHP process, so a slow or unavailable CloudWatch endpoint slows down web requests, queue workers, and artisan commands. This package takes a different approach. The log channel writes each record to a fast local buffer (any Laravel cache store), and a scheduled command ships the buffer to CloudWatch in batches, outside of any request or job.
 
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/:package_name.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/:package_name)
+Highlights:
 
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
-
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+- The hot path is a few cache store operations per log record. No AWS calls, ever.
+- The buffer lives in any cache store you choose (Redis, Memcached, database, DynamoDB).
+- The ship command creates the log group for you and applies a retention policy (two years by default), so there is nothing to provision by hand.
+- A CloudWatch outage never breaks your app. Records queue up (capped) and ship when CloudWatch is reachable again.
+- Batches respect all `PutLogEvents` limits: chronological order, the 1MB payload cap, and the 24 hour batch time span.
 
 ## Installation
 
-You can install the package via composer:
+Install via composer:
 
 ```bash
-composer require :vendor_slug/:package_slug
+composer require rouxtaccess/laravel-cloudwatch
 ```
 
-You can publish and run the migrations with:
+Optionally publish the config file:
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-migrations"
-php artisan migrate
-```
-
-You can publish the config file with:
-
-```bash
-php artisan vendor:publish --tag=":package_slug-config"
-```
-
-This is the contents of the published config file:
-
-```php
-return [
-];
-```
-
-Optionally, you can publish the views using
-
-```bash
-php artisan vendor:publish --tag=":package_slug-views"
+php artisan vendor:publish --tag="cloudwatch-config"
 ```
 
 ## Usage
 
+Add a `cloudwatch` channel to `config/logging.php`:
+
 ```php
-$:variable = new VendorName\Skeleton();
-echo $:variable->echoPhrase('Hello, VendorName!');
+'channels' => [
+
+    'stack' => [
+        'driver' => 'stack',
+        'channels' => explode(',', env('LOG_STACK', 'daily,cloudwatch')),
+    ],
+
+    'cloudwatch' => [
+        'driver' => 'cloudwatch',
+        'level' => env('LOG_CLOUDWATCH_LEVEL', 'info'),
+    ],
+
+],
 ```
+
+Then enable shipping in your `.env`:
+
+```dotenv
+CLOUDWATCH_ENABLED=true
+CLOUDWATCH_LOG_GROUP=my-app-production
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=eu-west-1
+```
+
+That is everything. The package schedules `cloudwatch:ship` every minute (with overlap protection) as long as your scheduler is running. On the first shipment it creates the log group with the configured retention.
+
+Logging works like any other channel:
+
+```php
+Log::info('Order shipped', ['order_id' => $order->id]);
+Log::channel('cloudwatch')->warning('Only to CloudWatch');
+```
+
+Records are stored as JSON lines, which makes them directly queryable with CloudWatch Logs Insights:
+
+```
+fields @timestamp, message, context.order_id
+| filter level_name = "ERROR"
+| sort @timestamp desc
+```
+
+## Configuration
+
+### Choosing the buffer store
+
+By default the buffer uses your application's default cache store. Point it at any store from `config/cache.php` with:
+
+```dotenv
+CLOUDWATCH_BUFFER_CACHE_STORE=redis
+```
+
+Stores with atomic increments (Redis, Memcached, database, DynamoDB) are safe under concurrent writes. Avoid the file store outside local development, since its counters are not atomic across processes.
+
+### Log group, stream and retention
+
+```dotenv
+CLOUDWATCH_LOG_GROUP=my-app-production
+CLOUDWATCH_LOG_STREAM=web-1        # defaults to the host name
+CLOUDWATCH_RETENTION_DAYS=731      # two years, must be a value CloudWatch accepts
+```
+
+If your IAM policy is locked down and the group is provisioned externally (Terraform, CloudFormation), disable group management:
+
+```dotenv
+CLOUDWATCH_CREATE_LOG_GROUP=false
+```
+
+With group management enabled, the IAM user or role needs:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutRetentionPolicy",
+                "logs:DescribeLogGroups",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:log-group:my-app-production*"
+        }
+    ]
+}
+```
+
+With `CLOUDWATCH_CREATE_LOG_GROUP=false` only `logs:PutLogEvents` is required.
+
+### Buffer safety valves
+
+The buffer is capped so an extended outage cannot grow your cache store unbounded. Once the cap is reached new records are dropped until the shipper catches up. Buffered records also carry a TTL as a second safety net.
+
+```dotenv
+CLOUDWATCH_BUFFER_CAP=100000
+CLOUDWATCH_BUFFER_RECORD_TTL=259200
+```
+
+### Scheduling yourself
+
+Set `CLOUDWATCH_AUTO_SCHEDULE=false` and schedule the command however you prefer:
+
+```php
+Schedule::command('cloudwatch:ship')->everyMinute()->withoutOverlapping();
+```
+
+### Custom formatter
+
+The channel accepts a `formatter` option, any Monolog formatter class resolved through the container:
+
+```php
+'cloudwatch' => [
+    'driver' => 'cloudwatch',
+    'level' => 'info',
+    'formatter' => Monolog\Formatter\LineFormatter::class,
+],
+```
+
+The default is a `JsonFormatter`, which is the most useful format for Logs Insights queries.
+
+### Custom buffer backend
+
+The buffer is bound through the `Rouxtaccess\CloudWatch\Buffer\Buffer` contract. To store records somewhere else entirely, implement the contract (four methods: `push`, `peek`, `acknowledge`, `pendingCount`) and point the config at your class:
+
+```php
+'buffer' => [
+    'implementation' => App\Logging\NativeRedisListBuffer::class,
+],
+```
+
+## Delivery semantics
+
+Delivery is at least once. The shipper only acknowledges (removes) records after CloudWatch accepts them, so a failure keeps everything buffered for the next run. A crash between a successful `PutLogEvents` call and the acknowledgement can duplicate a batch, and a hard crash of the cache store can lose records that have not shipped yet. If CloudWatch rejects individual events (for example events older than 14 days), the rejection info is logged as a warning.
 
 ## Testing
 
 ```bash
 composer test
+composer analyse
+composer format
 ```
+
+The test suite runs on the array cache store, so it needs no external services.
 
 ## Changelog
 
 Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
 
-## Contributing
-
-Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
-
-## Security Vulnerabilities
-
-Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
-
 ## Credits
 
-- [:author_name](https://github.com/:author_username)
+- [John Roux](https://github.com/JohnRoux)
 - [All Contributors](../../contributors)
 
 ## License
